@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from '../prisma.service';
 import { PaginationDto } from '../common';
+import { RpcException } from '@nestjs/microservices';
 
 @Injectable()
 export class ProductsService {
@@ -33,7 +34,9 @@ export class ProductsService {
 
   async findOne(id: number) {
     const product = await this.prisma.product.findFirst({ where: { id, available: true } });
-    if (!product) throw new NotFoundException(`Product not found with id #${id}`);
+    if (!product) {
+      throw new RpcException({ message: `Product not found with id #${id}`, status: HttpStatus.BAD_REQUEST });
+    }
     return product;
   }
 
@@ -41,7 +44,7 @@ export class ProductsService {
     // return `This action updates a #${id} product`;
     const { id: _, ...data } = updateProductDto;
     const product = await this.prisma.product.findUnique({ where: { id } });
-    if (!product) throw new NotFoundException(`Product not found with id #${id}`);
+    if (!product) throw new RpcException(`Product not found with id #${id}`);
 
     return this.prisma.product.update({
       where: { id },
@@ -52,8 +55,27 @@ export class ProductsService {
   async remove(id: number) {
     // return `This action removes a #${id} product`;
     const product = await this.prisma.product.findUnique({ where: { id } });
-    if (!product) throw new NotFoundException(`Product not found with id #${id}`);
+    if (!product) throw new RpcException(`Product not found with id #${id}`);
 
     return this.prisma.product.update({ where: { id }, data: { available: false } });
+  }
+
+  async validateProducts(ids: number[]) {
+    ids = Array.from(new Set(ids)); // Remove duplicates
+    const products = await this.prisma.product.findMany({
+      where: {
+        id: { in: ids },
+        available: true,
+      },
+    });
+
+    if (products.length !== ids.length) {
+      throw new RpcException({
+        message: 'One or more products are invalid or unavailable',
+        status: HttpStatus.BAD_REQUEST
+      });
+    }
+
+    return products;
   }
 }
